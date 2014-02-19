@@ -1,0 +1,808 @@
+//
+//  ControlBarGalleryView.m
+//  VideoAdSample
+//
+//  Created by Karthik Kumaravel on 5/14/13.
+//  Copyright (c) 2013 Karthik Kumaravel. All rights reserved.
+//
+
+#import "ControlBarGalleryView.h"
+#import "ECModalVideoPlaylistAdViewController.h"
+#import <QuartzCore/QuartzCore.h>
+#import <QuartzCore/QuartzCore.h>
+#import <MapKit/MapKit.h>
+#import "MapPoint.h"
+
+#define ECAdGalleryImageTag 3000
+#define ECADGallerySelectionWidth 4
+#define kGOOGLE_API_KEY @"AIzaSyBO25quts5C-FJFt5zdLuZWOmPLU58h5uQ"
+
+
+@interface ControlBarGalleryView () {
+    int selectedImage;
+
+}
+
+@property (nonatomic, strong) UIImageView *imageView;
+@property (nonatomic, strong) UITableView *galleryTableView;
+@property (nonatomic, strong) UIButton *closeBtn;
+@property (nonatomic, strong) MPMoviePlayerController *moviePlayer;
+@property (nonatomic, strong) UIButton *playBtn;
+@property (nonatomic, strong) UITableView *socialTableView;
+@property (nonatomic, strong) UITextField *txtField;
+@property (nonatomic, strong) MKMapView *mapView;
+
+@end
+@implementation ControlBarGalleryView
+
+- (id)initWithControlBarFormat:(kECAdControlBarFormat)format withDelegate:(id)delegate_
+{
+    self = [super initWithFrame:CGRectZero];
+    if (self) {
+        self.delegate  = delegate_;
+        self.controlBarFormat = format;
+        // Initialization code
+    }
+    return self;
+}
+
+- (void)initialize {
+    switch (self.controlBarFormat) {
+        case kECControlBarGallery: {
+            [self setupGalleryView];
+            self.galleryTableView.hidden = NO;
+        }
+            break;
+            case kECControlBarVideo:
+            [self setupVideoView];
+            break;
+            case kECControlBarLocator:
+            [self setupLocatorView];
+            break;
+            case kECControlBarFacebook:
+            [self setupFbView];
+            break;
+            case kECControlBarTwitter:
+            [self setupTwitterView];
+            break;
+        default:
+            break;
+    }
+}
+
+- (void)setupLocatorView {
+    self.txtField = [[UITextField alloc] initWithFrame:CGRectInset(CGRectMake(0, 0, self.frame.size.width, 60), 100, 10)];
+    [self addSubview:self.txtField];
+    self.txtField.borderStyle = UITextBorderStyleRoundedRect;
+    [self.txtField setBackgroundColor:[UIColor whiteColor]];
+    self.txtField.keyboardType = UIKeyboardTypeAlphabet;
+    self.txtField.returnKeyType = UIReturnKeySearch;
+    self.txtField.delegate = self;
+    self.txtField.placeholder = @"Enter Zip Code";
+    
+    self.txtField.autoresizingMask =  UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleBottomMargin;
+    
+    self.closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    [self.closeBtn setImage:[UIImage imageNamed:@"close_Icon.png"] forState:UIControlStateNormal];
+    [self.closeBtn addTarget:self action:@selector(closeBtnClicked) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:self.closeBtn];
+    [self.closeBtn setAutoresizingMask:UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin];
+    CGRect rect = self.bounds;
+    rect.origin.x = rect.size.width - 40;
+    rect.origin.y = 5;
+    rect.size = CGSizeMake(30, 30);
+    self.closeBtn.frame = rect;
+    [self bringSubviewToFront:self.closeBtn];
+    
+    if (nil == self.mapView) {
+        self.mapView = [[MKMapView alloc] initWithFrame:CGRectInset(CGRectMake(0, self.txtField.frame.origin.y + self.txtField.frame.size.height, self.frame.size.width, self.frame.size.height - (self.txtField.frame.origin.y+self.txtField.frame.size.height)), 10, 10)];
+        [self addSubview:self.mapView];
+        self.mapView.autoresizingMask = self.autoresizingMask;
+    }
+
+}
+#pragma mark - TextView delegate
+
+- (BOOL)textFieldShouldReturn:(UITextField *)textField {
+    BOOL isValidZip = [self validateZipCode:textField.text];
+    if(isValidZip) {
+        [self setupMapView];
+    }
+    else {
+        UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"Error" message:@"Please enter a valid Zip code" delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil];
+        [alert show];
+    }
+    [textField resignFirstResponder];
+    return YES;
+}
+
+- (void)setupMapView {
+    self.mapView.hidden = NO;
+    [self fetchLatLonForZipCode];
+    
+}
+
+
+- (void)fetchLatLonForZipCode {
+    NSString *url  = [NSString stringWithFormat:@"http://maps.google.com/maps/api/geocode/json?address=%@&sensor=false",self.txtField.text];
+    //Formulate the string as URL object.
+    NSURL *googleRequestURL=[NSURL URLWithString:url];
+    
+    // Retrieve the results of the URL.
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSData* data = [NSData dataWithContentsOfURL: googleRequestURL];
+        [self performSelectorOnMainThread:@selector(fetchedGeoData:) withObject:data waitUntilDone:YES];
+    });
+}
+- (void)fetchedGeoData:(NSData *)responseData {
+    //parse out the json data
+    NSError* error;
+    NSDictionary* json = [NSJSONSerialization
+                          JSONObjectWithData:responseData
+                          
+                          options:kNilOptions
+                          error:&error];
+    
+    //The results from Google will be an array obtained from the NSDictionary object with the key "results".
+    NSArray* places = [json objectForKey:@"results"];
+    
+    //Write out the data to the console.
+    NSLog(@"Google Data: %@", places);
+    
+    //Plot the data in the places array onto the map with the plotPostions method.
+    //    [self plotPositions:places];
+    if ([places count])
+        [self fetchNearbyStores:[places lastObject]];
+    
+    
+}
+
+
+- (void)fetchNearbyStores:(NSDictionary *)data {
+    int  currenDist = 1000000;
+    NSDictionary *geo = [data objectForKey:@"geometry"];
+    NSDictionary *loc = [geo objectForKey:@"location"];
+    
+    MKCoordinateRegion region;
+    MKCoordinateSpan span;
+    
+    span.latitudeDelta=0.01;
+    span.longitudeDelta=0.01;
+    
+    CLLocationCoordinate2D location=CLLocationCoordinate2DMake([[loc objectForKey:@"lat"] doubleValue], [[loc objectForKey:@"lng"] doubleValue]);
+    
+    region.span=span;
+    region.center=location;
+    
+    [self.mapView setRegion:region animated:TRUE];
+    [self.mapView regionThatFits:region];
+    [self.mapView setCenterCoordinate:location animated:YES];
+    
+    
+    
+    
+    //NSString *url  =@"http://maps.google.com/maps/api/geocode/json?address=600051&sensor=false";
+    NSString *url = [NSString stringWithFormat:@"https://maps.googleapis.com/maps/api/place/search/json?keyword=%@&location=%f,%f&radius=%@&sensor=false&key=%@",[[self.delegate responseDict] objectForKey:@"brand"],[[loc objectForKey:@"lat"] doubleValue], [[loc objectForKey:@"lng"] doubleValue],[NSString stringWithFormat:@"%i", currenDist], kGOOGLE_API_KEY];
+    
+    //Formulate the string as URL object.
+    NSURL *googleRequestURL=[NSURL URLWithString:url];
+    
+    // Retrieve the results of the URL.
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSData* data = [NSData dataWithContentsOfURL: googleRequestURL];
+        [self performSelectorOnMainThread:@selector(fetchedStoreData:) withObject:data waitUntilDone:YES];
+    });
+    
+}
+
+- (void)fetchedStoreData:(NSData *)responseData {
+    //parse out the json data
+    NSError* error;
+    NSDictionary* json = [NSJSONSerialization
+                          JSONObjectWithData:responseData
+                          
+                          options:kNilOptions
+                          error:&error];
+    
+    //The results from Google will be an array obtained from the NSDictionary object with the key "results".
+    NSArray* places = [json objectForKey:@"results"];
+    
+    //Write out the data to the console.
+    NSLog(@"Google Data: %@", places);
+    
+    //Plot the data in the places array onto the map with the plotPostions method.
+    //    [self plotPositions:places];
+    if ([places count])
+        [self plotPositions:places];
+    
+    
+}
+
+
+- (void)plotPositions:(NSArray *)data
+{
+    //Remove any existing custom annotations but not the user location blue dot.
+    for (id<MKAnnotation> annotation in self.mapView.annotations)
+    {
+        if ([annotation isKindOfClass:[MapPoint class]])
+        {
+            [self.mapView removeAnnotation:annotation];
+        }
+    }
+    
+    
+    //Loop through the array of places returned from the Google API.
+    for (int i=0; i<[data count]; i++)
+    {
+        
+        //Retrieve the NSDictionary object in each index of the array.
+        NSDictionary* place = [data objectAtIndex:i];
+        
+        //There is a specific NSDictionary object that gives us location info.
+        NSDictionary *geo = [place objectForKey:@"geometry"];
+        
+        
+        //Get our name and address info for adding to a pin.
+        NSString *name=[place objectForKey:@"name"];
+        NSString *vicinity=[place objectForKey:@"vicinity"];
+        
+        //Get the lat and long for the location.
+        NSDictionary *loc = [geo objectForKey:@"location"];
+        
+        //Create a special variable to hold this coordinate info.
+        CLLocationCoordinate2D placeCoord;
+        
+        //Set the lat and long.
+        placeCoord.latitude=[[loc objectForKey:@"lat"] doubleValue];
+        placeCoord.longitude=[[loc objectForKey:@"lng"] doubleValue];
+        
+        //Create a new annotiation.
+        MapPoint *placeObject = [[MapPoint alloc] initWithName:name address:vicinity coordinate:placeCoord];
+        
+        
+        [self.mapView addAnnotation:placeObject];
+    }
+    
+    
+    @try {
+        double upperLatitude = [[[[[data objectAtIndex:0] objectForKey:@"geometry"] objectForKey:@"location"] objectForKey:@"lat"] doubleValue];
+        double lowerLatitude =[[[[[data lastObject] objectForKey:@"geometry"] objectForKey:@"location"] objectForKey:@"lat"] doubleValue];
+        
+        double upperLongitude = [[[[[data objectAtIndex:0] objectForKey:@"geometry"] objectForKey:@"location"] objectForKey:@"lng"] doubleValue];
+        double lowerLongitude =[[[[[data lastObject] objectForKey:@"geometry"] objectForKey:@"location"] objectForKey:@"lng"] doubleValue];
+        
+        MKCoordinateSpan locationSpan;
+        locationSpan.latitudeDelta = upperLatitude - lowerLatitude;
+        locationSpan.longitudeDelta = upperLongitude - lowerLongitude;
+        CLLocationCoordinate2D locationCenter;
+        locationCenter.latitude = (upperLatitude + lowerLatitude) / 2;
+        locationCenter.longitude = (upperLongitude + lowerLongitude) / 2;
+        
+        MKCoordinateRegion region = MKCoordinateRegionMake(locationCenter, locationSpan);
+        [self.mapView setRegion:region animated:YES];
+    }
+    @catch (NSException *exception) {
+    }
+}
+
+- (BOOL)validateZipCode:(NSString *)string {
+    NSCharacterSet* notDigits = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+    if ([string rangeOfCharacterFromSet:notDigits].location == NSNotFound)
+        return YES;
+    
+    return NO;
+    
+}
+- (void)setupFbView {
+    if (nil == self.socialTableView) {
+        self.socialTableView = [[UITableView alloc] initWithFrame:CGRectInset(self.bounds, 20, 20)];
+        self.socialTableView.backgroundColor = [UIColor clearColor];
+        self.socialTableView.dataSource = self;
+        self.socialTableView.delegate = self;
+        self.socialTableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self addSubview:self.socialTableView];
+        
+        self.closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        [self.closeBtn setImage:[UIImage imageNamed:@"close_Icon.png"] forState:UIControlStateNormal];
+        [self.closeBtn addTarget:self action:@selector(closeBtnClicked) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.closeBtn];
+        [self.closeBtn setAutoresizingMask:UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin];
+        CGRect rect = self.bounds;
+        rect.origin.x = rect.size.width - 40;
+        rect.origin.y = 5;
+        rect.size = CGSizeMake(30, 30);
+        self.closeBtn.frame = rect;
+        [self bringSubviewToFront:self.closeBtn];
+    }
+    [self.socialTableView reloadData];
+
+    
+}
+- (void)setupTwitterView {
+    if (nil == self.socialTableView) {
+        self.socialTableView = [[UITableView alloc] initWithFrame:CGRectInset(self.bounds, 20, 20)];
+        self.socialTableView.backgroundColor = [UIColor clearColor];
+        self.socialTableView.dataSource = self;
+        self.socialTableView.delegate = self;
+        self.socialTableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self addSubview:self.socialTableView];
+        
+        self.closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        [self.closeBtn setImage:[UIImage imageNamed:@"close_Icon.png"] forState:UIControlStateNormal];
+        [self.closeBtn addTarget:self action:@selector(closeBtnClicked) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.closeBtn];
+        [self.closeBtn setAutoresizingMask:UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin];
+        CGRect rect = self.bounds;
+        rect.origin.x = rect.size.width - 40;
+        rect.origin.y = 5;
+        rect.size = CGSizeMake(30, 30);
+        self.closeBtn.frame = rect;
+        [self bringSubviewToFront:self.closeBtn];
+    }
+    [self.socialTableView reloadData];
+}
+- (void)setupGalleryView {
+    if (nil == self.imageView) {
+        self.imageView = [[UIImageView alloc] initWithFrame:CGRectMake(self.bounds.origin.x, self.bounds.origin.y, self.bounds.size.width, self.bounds.size.height - 150)];
+        [self addSubview: self.imageView];
+        [self.imageView setUserInteractionEnabled:YES];
+        [self.imageView setContentMode:UIViewContentModeScaleAspectFit];
+        [self.imageView setAutoresizingMask:UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight];
+        [self.imageView setBackgroundColor:[UIColor clearColor]];
+        
+        self.closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        [self.closeBtn setImage:[UIImage imageNamed:@"close_Icon.png"] forState:UIControlStateNormal];
+        [self.closeBtn addTarget:self action:@selector(closeBtnClicked) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:self.closeBtn];
+        [self.closeBtn setAutoresizingMask:UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin];
+        
+        CGRect rect = self.imageView.bounds;
+        rect.origin.x = rect.size.width - 40;
+        rect.origin.y = 5;
+        rect.size = CGSizeMake(30, 30);
+        self.closeBtn.frame = rect;
+        [self bringSubviewToFront:self.closeBtn];
+    }
+    if (nil == self.galleryTableView) {
+        
+        
+        self.galleryTableView = [[UITableView alloc] init];
+        [self.galleryTableView setAutoresizingMask:UIViewAutoresizingNone];
+        self.galleryTableView.delegate = self;
+        self.galleryTableView.dataSource  = self;
+        self.galleryTableView.hidden = YES;
+        [self addSubview:self.galleryTableView];
+        [self.galleryTableView setBackgroundColor:[UIColor blackColor]];
+        
+        
+       CGRect rect = self.imageView.frame;
+        if (UIInterfaceOrientationIsLandscape([self.delegate interfaceOrientation])) {
+            rect.origin = CGPointMake(337,58);
+            rect.size.width = self.frame.size.height- rect.size.height;//120;//400;
+            rect.size.height = self.imageView.frame.size.width;//tableFrame.size.width;//300;
+        }
+        else {
+            rect.origin = CGPointMake((self.frame.size.height- rect.size.height)+60,  (rect.size.width/2)+160);
+            rect.size.width = self.frame.size.height- rect.size.height;//120;//400;
+            rect.size.height = self.imageView.frame.size.width;//tableFrame.size.width;//300;
+        }
+        
+        self.galleryTableView.frame = rect;
+        
+        self.galleryTableView.transform = CGAffineTransformMakeRotation(-M_PI * 0.5);
+        self.galleryTableView.showsHorizontalScrollIndicator = NO;
+        self.galleryTableView.showsVerticalScrollIndicator = NO;
+        
+        self.galleryTableView.layer.cornerRadius = 20.0;
+        // self.galleryTableView.layer.borderWidth = 4.0;
+        //self.galleryTableView.layer.borderColor = [UIColor whiteColor].CGColor;
+        NSMutableDictionary *imageDict = nil;//
+        if (self.controlBarFormat == kECControlBarGallery)
+            imageDict = [(ECModalVideoPlaylistAdViewController *)self.delegate imageDict];
+        else
+            imageDict = [self.delegate videoThumbDict];
+        
+        if (selectedImage < 0 || selectedImage > imageDict.count)
+            selectedImage = 0;
+        
+        self.imageView.image = [imageDict objectForKey:[NSString stringWithFormat:@"%d",selectedImage]];
+    }
+    
+    
+}
+
+
+- (void)setupVideoView {
+    [self setupGalleryView];
+    self.galleryTableView.hidden = NO;
+    self.playBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    [self.playBtn addTarget:self action:@selector(playBtnClicked) forControlEvents:UIControlEventTouchUpInside];
+    [self.playBtn setImage:[UIImage imageNamed:@"play.png"] forState:UIControlStateNormal];
+    [self.imageView addSubview:self.playBtn];
+    CGRect rect = CGRectZero;
+    rect.size = CGSizeMake(50, 50);
+    
+    self.playBtn.frame = rect;
+    self.playBtn.center = self.imageView.center;
+    self.playBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin|UIViewAutoresizingFlexibleTopMargin|UIViewAutoresizingFlexibleBottomMargin;
+
+}
+
+- (NSString *)getCurrentVideoUrl {
+    NSString *media = [[self.delegate responseDict] objectForKey:@"similarmedia"];
+    NSArray *urls = [media componentsSeparatedByString:@","];
+    
+    if (selectedImage > [urls count])
+        return @"";
+    return [urls objectAtIndex:selectedImage];
+}
+- (void)playBtnClicked {
+    self.imageView.hidden = YES;
+    if (nil == self.moviePlayer) {
+    self.moviePlayer = [[MPMoviePlayerController alloc] initWithContentURL:[NSURL URLWithString:[self getCurrentVideoUrl]]];
+    self.moviePlayer.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight|UIViewAutoresizingFlexibleTopMargin;
+    
+        self.moviePlayer.view.frame = CGRectInset(self.imageView.frame, 10, 10);//self.imageView.frame;
+    [self.moviePlayer setControlStyle:MPMovieControlStyleNone];
+    [self addSubview:self.moviePlayer.view];
+        
+        UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        [closeBtn setImage:[UIImage imageNamed:@"close_Icon.png"] forState:UIControlStateNormal];
+        [closeBtn addTarget:self action:@selector(closeBtnClicked) forControlEvents:UIControlEventTouchUpInside];
+        [self.moviePlayer.view addSubview:closeBtn];
+        [closeBtn setAutoresizingMask:UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleBottomMargin];
+        
+        CGRect rect = self.moviePlayer.view.bounds;
+        rect.origin.x = rect.size.width - 40;
+        rect.origin.y = 5;
+        rect.size = CGSizeMake(30, 30);
+        closeBtn.frame = rect;
+        [self.moviePlayer.view bringSubviewToFront:closeBtn];
+    }
+    self.moviePlayer.view.hidden = NO;
+    [self.moviePlayer prepareToPlay];
+    [self.moviePlayer play];
+    [self bringSubviewToFront:self.playBtn];
+}
+
+
+- (id)initWithFrame:(CGRect)frame
+{
+    self = [super initWithFrame:frame];
+    if (self) {
+        // Initialization code
+    }
+    return self;
+}
+
+
+- (void)layoutFrames:(UIInterfaceOrientation )interfaceOrientation {
+    [self layoutGalleryTableView:interfaceOrientation];
+}
+- (void)showGalleryView {
+    self.galleryTableView.hidden = NO;
+}
+- (void)layoutGalleryTableView:(UIInterfaceOrientation)interfaceOrientation {
+    if (self.galleryTableView) {
+        [self.galleryTableView removeFromSuperview];
+        self.galleryTableView = nil;
+        [self setupGalleryView];
+    }
+    [self.socialTableView reloadData];
+}
+- (void)closeBtnClicked {
+    if ([self.delegate respondsToSelector:@selector(controlAdViewClosed)])
+        [self.delegate performSelector:@selector(controlAdViewClosed)];
+}
+
+
+#pragma mark -
+#pragma mark TableView Data Source
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return 10.0;
+}
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    return 10.0;
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
+    UIView *view = [[UIView alloc] init];
+    [view setBackgroundColor:[UIColor clearColor]];
+    return view;
+    
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    UIView *view = [[UIView alloc] init];
+    [view setBackgroundColor:[UIColor clearColor]];
+    return view;
+}
+- (NSInteger)tableView:(UITableView *)tableView
+ numberOfRowsInSection:(NSInteger)section
+{
+    if (self.controlBarFormat == kECControlBarGallery)
+        return [[(ECModalVideoPlaylistAdViewController *)self.delegate imageDict] count];
+    else if (self.controlBarFormat == kECControlBarVideo)
+        return [[(ECModalVideoPlaylistAdViewController *)self.delegate videoThumbDict] count];
+
+    else if (self.controlBarFormat == kECControlBarFacebook)
+        return [self.delegate fbContentDict].count;
+    else if (self.controlBarFormat ==  kECControlBarTwitter)
+        return [self.delegate twitterContentDict].count;
+    return 0;
+    
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    return 120;
+}
+
+#pragma mark - TableView Delegate
+
+- (UITableViewCell *)tableView:(UITableView *)tableView
+         cellForRowAtIndexPath:(NSIndexPath *)indexPath  {
+    UITableViewCell *cell = nil;[tableView dequeueReusableCellWithIdentifier:@"Identifier"];
+    
+    if (self.controlBarFormat == kECControlBarGallery || self.controlBarFormat == kECControlBarVideo) {
+    if (!cell) {
+        cell = [[UITableViewCell alloc]initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"Identifier"];
+        [cell setBackgroundColor:tableView.backgroundColor];
+    }
+   // [cell.contentView addSubview:[self getSelectedBGView]];
+    [cell setBackgroundView:[self getContentViewForIndexpath:indexPath]];
+    [cell setSelectionStyle:UITableViewCellSelectionStyleNone];
+    cell.transform = CGAffineTransformMakeRotation(M_PI * 0.5);
+    }
+    else if (self.controlBarFormat == kECControlBarTwitter) {
+        NSArray *keys = [[self.delegate twitterContentDict] allKeys];
+        if (!cell) {
+            cell = [[UITableViewCell alloc]initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"TwitterIdentifier"];
+            [cell setBackgroundColor:tableView.backgroundColor];
+            UIButton *twitterButton = [UIButton buttonWithType:UIButtonTypeCustom];
+            [twitterButton setImage:[UIImage imageNamed:@"twitter_Icon.png"] forState:UIControlStateNormal];
+
+            [twitterButton addTarget:self action:@selector(twitterButtonClicked) forControlEvents:UIControlEventTouchUpInside];
+            twitterButton.frame = CGRectMake(self.socialTableView.frame.size.width - 40, 5, 25, 25);
+            [cell addSubview:twitterButton];
+
+            
+        }
+        NSSortDescriptor* sortOrder = [NSSortDescriptor sortDescriptorWithKey: @"self" ascending: YES];
+        keys = [keys sortedArrayUsingDescriptors:[NSArray arrayWithObject:sortOrder]];
+        
+        NSDictionary *twitterContent = [[self.delegate twitterContentDict] objectForKey:[keys objectAtIndex:indexPath.row]];
+        if (twitterContent.count)
+            [cell setBackgroundView:[self getTwitterContentViewForContent:twitterContent]];
+
+    }
+    else if (self.controlBarFormat == kECControlBarFacebook) {
+        if (!cell) {
+            cell = [[UITableViewCell alloc]initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"FBIdentifier"];
+            [cell setBackgroundColor:tableView.backgroundColor];
+            
+            UIButton *fbButton = [UIButton buttonWithType:UIButtonTypeCustom];
+            [fbButton setImage:[UIImage imageNamed:@"fb_Icon.png"] forState:UIControlStateNormal];
+            [fbButton addTarget:self action:@selector(fbButtonClicked) forControlEvents:UIControlEventTouchUpInside];
+            // [baseView addSubview:fbButton];
+            fbButton.frame = CGRectMake(self.socialTableView.frame.size.width - 40, 5, 25, 25);
+            [cell addSubview:fbButton];
+
+        }
+        
+        NSArray *keys = [[self.delegate fbContentDict] allKeys];
+        NSDictionary *fbContent = [[self.delegate fbContentDict] objectForKey:[keys objectAtIndex:indexPath.row]];
+        
+        NSSortDescriptor* sortOrder = [NSSortDescriptor sortDescriptorWithKey: @"self" ascending: YES];
+        keys = [keys sortedArrayUsingDescriptors:[NSArray arrayWithObject:sortOrder]];
+        
+        //            [cell setBackgroundView:[self getFBContentViewForContent:fbContent]];
+        [cell setSelectionStyle:UITableViewCellSelectionStyleGray];
+        [cell addSubview:[self getFBContentViewForContent:fbContent]];
+        
+        [cell setSelectionStyle:UITableViewCellSelectionStyleGray];
+
+    }
+    
+    return cell;
+}
+
+- (UIView *)getFBContentViewForContent:(NSDictionary *)fbContent {
+    UIView *baseView = [[UIView alloc] init];
+    
+    UIImageView *imageView = [[UIImageView alloc] initWithFrame:CGRectMake(5, 5, 100, 100)];
+    [imageView setContentMode:UIViewContentModeScaleToFill];
+    [baseView addSubview:imageView];
+    imageView.image =  [[self.delegate socialImages ] objectForKey:[fbContent objectForKey:@"picture"]];
+    
+    
+    UILabel *userName = [[UILabel alloc] initWithFrame:CGRectMake(imageView.frame.origin.x + imageView.frame.size.width+5, imageView.frame.origin.y, 120, 20)];
+    [userName setBackgroundColor:[UIColor clearColor]];
+    [userName setTextColor:[UIColor blackColor]];
+    //    [userName setFont:[UIFont boldSystemFontOfSize:12]];
+    
+    
+    UIFont *font = [UIFont fontWithName:@"Georgia-Bold" size:20.0];
+    [userName setFont:font];
+    
+    
+    [baseView addSubview:userName];
+    [userName setText:[fbContent objectForKey:@"username"]];
+    
+    font = [UIFont fontWithName:@"TimesNewRomanPS-ItalicMT" size:18];
+    /*
+     UIButton *fbButton = [UIButton buttonWithType:UIButtonTypeCustom];
+     [fbButton setImage:[UIImage imageNamed:@"fb_Icon.png"] forState:UIControlStateNormal];
+     [fbButton addTarget:self action:@selector(fbButtonClicked) forControlEvents:UIControlEventTouchUpInside];
+     [baseView addSubview:fbButton];
+     fbButton.frame = CGRectMake(self.socialTableView.frame.size.width - 40, userName.frame.origin.y, 20, 20);*/
+    
+    UILabel *descView = [[UILabel alloc] initWithFrame:CGRectMake(userName.frame.origin.x, userName.frame.origin.y+userName.frame.size.height, 400, 100)];
+    [descView setBackgroundColor:[UIColor clearColor]];
+    [descView setTextColor:[UIColor blackColor]];
+    descView.font = font;
+    [descView setNumberOfLines:0];
+    descView.text = [fbContent objectForKey:@"message"];
+    [baseView addSubview:descView];
+    
+    return baseView;
+    
+    
+}
+- (UIView *)getTwitterContentViewForContent:(NSDictionary *)twitterContent {
+    UIView *baseView = [[UIView alloc] init];
+    [baseView setBackgroundColor:[UIColor clearColor]];
+    
+    UIImageView *imageView = [[UIImageView alloc] initWithFrame:CGRectMake(5, 5, 100, 100)];
+    [imageView setContentMode:UIViewContentModeScaleToFill];
+    [baseView addSubview:imageView];
+    imageView.image =  [[self.delegate socialImages] objectForKey:[twitterContent objectForKey:@"iconurl"]];
+    
+    UILabel *userName = [[UILabel alloc] initWithFrame:CGRectMake(imageView.frame.origin.x + imageView.frame.size.width+5, imageView.frame.origin.y, 120, 20)];
+    [userName setBackgroundColor:[UIColor clearColor]];
+    [userName setTextColor:[UIColor blackColor]];
+    UIFont *font = [UIFont fontWithName:@"Georgia-Bold" size:20.0];
+    [userName setFont:font];
+    
+    [baseView addSubview:userName];
+    [userName setText:[twitterContent objectForKey:@"username"]];
+    font = [UIFont fontWithName:@"TimesNewRomanPS-ItalicMT" size:20.0];
+    
+    
+    //    UIButton *twitterButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    //    [twitterButton setImage:[UIImage imageNamed:@"twitter_Icon.png"] forState:UIControlStateNormal];
+    //    [twitterButton addTarget:self action:@selector(twitterButtonClicked) forControlEvents:UIControlEventTouchUpInside];
+    //    [baseView addSubview:twitterButton];
+    //    twitterButton.frame = CGRectMake(self.socialTableView.frame.size.width - 40, userName.frame.origin.y, 20, 20);
+    
+    UILabel *descView = [[UILabel alloc] initWithFrame:CGRectMake(userName.frame.origin.x, userName.frame.origin.y+userName.frame.size.height, 400, 100)];
+    [descView setBackgroundColor:[UIColor clearColor]];
+    [descView setTextColor:[UIColor blackColor]];
+    //    [descView setFont:[UIFont systemFontOfSize:12]];
+    descView.font = font;
+    
+    [descView setNumberOfLines:0];
+    descView.text = [twitterContent objectForKey:@"message"];
+    [baseView addSubview:descView];
+    
+    
+    return baseView;
+}
+- (void)fbButtonClicked {
+    NSString *fbURL = [[self.delegate responseDict] objectForKey:@"fbtargeturl"];
+    if ([fbURL length])
+        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:fbURL]];
+}
+
+- (void)twitterButtonClicked {
+    NSString *twitterURL = [[self.delegate responseDict] objectForKey:@"twtargeturl"];
+    if ([twitterURL length])
+        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:twitterURL]];
+}
+
+
+
+- (UIImageView *)getContentViewForIndexpath:(NSIndexPath *)indexPath {
+    NSMutableDictionary *imageDict = nil;
+    if (self.controlBarFormat == kECControlBarGallery)
+        imageDict = [(ECModalVideoPlaylistAdViewController *)self.delegate imageDict];
+    else
+        imageDict = [self.delegate videoThumbDict];
+    UIImageView *imageView = [[UIImageView alloc] init];
+    imageView.image = [imageDict objectForKey:[NSString stringWithFormat:@"%d",indexPath.row]];
+    [imageView setTag:indexPath.row + ECAdGalleryImageTag];
+    [imageView setContentMode:UIViewContentModeScaleAspectFit];
+    imageView.layer.cornerRadius = 20.0;
+
+    if (selectedImage >= 0) {
+        if (indexPath.row == selectedImage) {
+            [imageView.layer setBorderWidth:ECADGallerySelectionWidth];
+            [imageView.layer setBorderColor:[UIColor orangeColor].CGColor];
+        }
+        else {
+            [imageView.layer setBorderWidth:0.0];
+            //            [imageView.layer setBorderColor:[UIColor orangeColor].CGColor];
+            
+        }
+    }
+    
+    return imageView;
+    
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    [tableView scrollToRowAtIndexPath:indexPath atScrollPosition:UITableViewScrollPositionMiddle animated:YES];
+
+    if (self.controlBarFormat == kECControlBarGallery || self.controlBarFormat == kECControlBarVideo) {
+    if (indexPath.row == selectedImage) {
+        return;
+    }
+    [self.moviePlayer stop];
+    self.moviePlayer.view.hidden = YES;
+    
+    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+    
+    if (selectedImage >= 0) {
+        UITableViewCell *prevCell = [tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:selectedImage inSection:0]];
+        UIImageView *prevImage = (UIImageView *)[prevCell viewWithTag:selectedImage + ECAdGalleryImageTag];
+        [prevImage.layer setBorderWidth:0.0];
+    }
+    
+    
+    UIImageView *imageView = (UIImageView *)[cell viewWithTag:indexPath.row + ECAdGalleryImageTag];
+    
+    [imageView.layer setBorderWidth:ECADGallerySelectionWidth];
+    [imageView.layer setBorderColor:[UIColor orangeColor].CGColor];
+    selectedImage = indexPath.row;
+    [self.imageView setImage:imageView.image];
+        [self.moviePlayer.view setHidden:YES];
+        self.imageView.hidden = NO;
+    }
+    else if (self.controlBarFormat == kECControlBarTwitter) {
+        NSArray *keys = [[self.delegate twitterContentDict] allKeys];
+        NSSortDescriptor* sortOrder = [NSSortDescriptor sortDescriptorWithKey: @"self" ascending: YES];
+        keys = [keys sortedArrayUsingDescriptors:[NSArray arrayWithObject:sortOrder]];
+        
+        NSDictionary *fbContent = [[self.delegate twitterContentDict] objectForKey:[keys objectAtIndex:indexPath.row]];
+        if ([[fbContent objectForKey:@"message"] length])
+            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:[self getTwitterLink:[fbContent objectForKey:@"message"]]]];
+    }
+    else if (self.controlBarFormat == kECControlBarFacebook) {
+        NSArray *keys = [[self.delegate fbContentDict] allKeys];
+        NSSortDescriptor* sortOrder = [NSSortDescriptor sortDescriptorWithKey: @"self" ascending: YES];
+        keys = [keys sortedArrayUsingDescriptors:[NSArray arrayWithObject:sortOrder]];
+        
+        NSDictionary *fbContent = [[self.delegate fbContentDict] objectForKey:[keys objectAtIndex:indexPath.row]];
+        if ([[fbContent objectForKey:@"clickurl"] length])
+            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:[fbContent objectForKey:@"clickurl"]]];
+        
+    }
+}
+
+
+- (NSString *)getTwitterLink:(NSString *)str {
+    NSString *trimmedStr = str;
+    NSArray *arrString = [str componentsSeparatedByString:@" "];
+    
+    for(int i=0; i<arrString.count;i++){
+        if([[arrString objectAtIndex:i] rangeOfString:@"http://"].location != NSNotFound) {
+            trimmedStr = [arrString objectAtIndex:i];
+            break;
+        }
+    }
+    
+    return trimmedStr;
+}
+
+
+
+/*
+// Only override drawRect: if you perform custom drawing.
+// An empty implementation adversely affects performance during animation.
+- (void)drawRect:(CGRect)rect
+{
+    // Drawing code
+}
+*/
+
+@end
