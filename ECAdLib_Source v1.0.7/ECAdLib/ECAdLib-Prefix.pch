@@ -1,8 +1,0 @@
-//
-// Prefix header for all source files of the 'ECAdLib' target in the 'ECAdLib' project
-//
-
-#ifdef __OBJC__
-    #import <Foundation/Foundation.h>
-    #import "ECAdConstants.h"
-#endif
